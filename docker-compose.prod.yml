@@ -1,0 +1,79 @@
+# Docker Compose for Production
+# Extends docker-compose.yml with production-specific overrides
+# Deploy with: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+
+version: '3.9'
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  redis:
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  backend:
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             gunicorn config.wsgi:application 
+             --bind 0.0.0.0:8000 
+             --workers 8 
+             --worker-class sync 
+             --timeout 120 
+             --keep-alive 5 
+             --access-logfile - 
+             --error-logfile -"
+    environment:
+      DEBUG: "False"
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+
+  celery:
+    command: celery -A config worker -l warning --concurrency=8 --pool=prefork
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 2G
+        reservations:
+          cpus: '2'
+          memory: 1G
+
+  celery-beat:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
